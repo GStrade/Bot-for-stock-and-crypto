@@ -1,7 +1,7 @@
 name: Run Stocks Bot
 
 on:
-  workflow_dispatch: # אפשר להריץ ידנית
+  workflow_dispatch:
   schedule:
     - cron: "0 6 * * *"   # כל יום 06:00
     - cron: "0 14 * * *"  # כל יום 14:00
@@ -10,14 +10,17 @@ jobs:
   run-stocks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+
       - name: Install dependencies
-        run: |
-          pip install yfinance matplotlib python-telegram-bot==13.7
+        run: pip install -r requirements.txt
+
       - name: Run stocks bot
         run: python stocks_bot.py
         env:
