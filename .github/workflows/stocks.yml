@@ -1,7 +1,7 @@
 name: Run Stocks Bot
 
 on:
-  workflow_dispatch: # הרצה ידנית
+  workflow_dispatch: # אפשר להריץ ידנית
   schedule:
     - cron: "0 6 * * *"   # כל יום 06:00
     - cron: "0 14 * * *"  # כל יום 14:00
