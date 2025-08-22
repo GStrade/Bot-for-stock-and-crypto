@@ -1,127 +1,114 @@
-import os, requests
-import yfinance as yf
+import os
+import requests
 import mplfinance as mpf
+import pandas as pd
+import matplotlib.pyplot as plt
 from pycoingecko import CoinGeckoAPI
 from telegram import Bot
 
 TOKEN = os.getenv("TOKEN_CRYPTO")
 CHAT_ID = os.getenv("CHAT_ID_CRYPTO")
 LUNAR_API_KEY = os.getenv("LUNARCRUSH_API")
-CMC_API_KEY = os.getenv("CMC_API_KEY")
+CMC_API_KEY = os.getenv("CMC_API_KEY")  # תכניס בגיטהאב
 
 bot = Bot(token=TOKEN)
 cg = CoinGeckoAPI()
 
-# --- סיווג העסקה (Day / Swing / Watch) ---
-def classify_trade(change, volume, market_cap):
-    if change and change >= 8 or (volume and market_cap and volume > market_cap * 0.2):
-        return "⚡ Day Trade"
-    elif change and 3 <= change < 8:
-        return "📅 Swing Trade"
+# ===================== פונקציות עזר =====================
+
+def calculate_levels(price, change):
+    if change > 0:
+        entry = price
+        stop = round(price * 0.92, 4)
+        target = round(price * 1.15, 4)
+        style = "סווינג (החזק עד שבוע)"
     else:
-        return "👀 Watchlist"
+        entry = price
+        stop = round(price * 1.05, 4)
+        target = round(price * 0.85, 4)
+        style = "עסקה קצרה (Intraday)"
+    return entry, stop, target, style
 
-# --- גרף נרות עם קווים ---
-def generate_chart(symbol, entry, stop_loss, take_profit):
-    try:
-        ticker = f"{symbol.upper()}-USD"
-        data = yf.download(ticker, period="7d", interval="1h")
-        if data.empty:
-            return None
+def generate_chart(symbol, prices, entry, stop, target):
+    df = pd.DataFrame(prices)
+    df['Date'] = pd.to_datetime(df['timestamp'], unit='s')
+    df.set_index('Date', inplace=True)
+    df = df[['open', 'high', 'low', 'close']]
 
-        alines = [
-            [data.index[0], entry, data.index[-1], entry],
-            [data.index[0], stop_loss, data.index[-1], stop_loss],
-            [data.index[0], take_profit, data.index[-1], take_profit]
-        ]
+    apds = [
+        mpf.make_addplot([entry]*len(df), color='blue', linestyle='--'),
+        mpf.make_addplot([stop]*len(df), color='red', linestyle='--'),
+        mpf.make_addplot([target]*len(df), color='green', linestyle='--'),
+    ]
 
-        filepath = f"{symbol}.png"
-        mpf.plot(data, type="candle", style="charles", volume=True,
-                 alines=dict(alines=alines, colors=["blue","red","green"]),
-                 savefig=filepath)
-        return filepath
-    except Exception as e:
-        print(f"שגיאה ביצירת גרף עבור {symbol}: {e}")
-        return None
+    filepath = f"{symbol}.png"
+    mpf.plot(df, type='candle', style='charles',
+             addplot=apds,
+             title=f"{symbol} - גרף יומי",
+             savefig=filepath)
+    return filepath
 
-# --- CoinGecko Low Caps ---
-def get_top_lowcaps():
-    coins = cg.get_coins_markets(vs_currency='usd', order='market_cap_asc', per_page=50, page=1)
-    return [c for c in coins if c['market_cap'] and c['market_cap']<50_000_000 and c['current_price']<5][:5]
+# ===================== מקורות מידע =====================
 
-# --- CoinGecko Trending ---
-def get_trending_coins():
+def get_trending_gecko():
     trending = cg.get_search_trending()
-    return [c['item'] for c in trending['coins'][:5]]
+    return [coin['item'] for coin in trending['coins'][:5]]
 
-# --- LunarCrush Trending ---
 def get_lunar_trending():
     url = "https://lunarcrush.com/api4/public/coins/list/v1"
+    params = {"limit": 5, "sort": "social_volume_24h", "desc": True}
     headers = {"Authorization": f"Bearer {LUNAR_API_KEY}"}
-    r = requests.get(url, headers=headers, params={"limit":5,"sort":"social_volume_24h","desc":True})
+    r = requests.get(url, headers=headers)
     return r.json().get("data", [])
 
-# --- CoinMarketCap Top Movers ---
-def get_cmc_movers():
-    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest"
+def get_cmc_trending():
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/trending/latest"
     headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
-    params = {"start": 1, "limit": 10, "sort": "percent_change_24h"}
-    r = requests.get(url, headers=headers, params=params)
-    if r.status_code != 200:
-        return []
-    data = r.json().get("data", [])
-    return data[:5]
+    r = requests.get(url, headers=headers)
+    return r.json().get("data", [])
 
-# --- שליחת הדו"ח ---
+# ===================== שליחת דו"ח =====================
+
 def send_report():
-    final_table = []
-    charts = []
+    bot.send_message(chat_id=CHAT_ID, text="🚀 סורק הקריפטו התחיל לרוץ!")
 
-    # 1. CoinGecko LowCap
-    lowcaps = get_top_lowcaps()
-    for c in lowcaps:
-        entry = round(c['current_price'], 4)
-        stop_loss = round(entry * 0.95, 4)
-        take_profit = round(entry * 1.1, 4)
-        trade_type = classify_trade(c['price_change_percentage_24h'], c['total_volume'], c['market_cap'])
-        final_table.append([c['symbol'].upper(), entry, f"{c['price_change_percentage_24h']}%", stop_loss, take_profit, trade_type])
-        chart = generate_chart(c['symbol'], entry, stop_loss, take_profit)
-        if chart:
-            charts.append((chart, c['name']))
-
-    # 2. CoinMarketCap Movers
-    cmc = get_cmc_movers()
-    for c in cmc:
-        entry = round(c['quote']['USD']['price'], 4)
-        change = round(c['quote']['USD']['percent_change_24h'], 2)
-        stop_loss = round(entry * 0.95, 4)
-        take_profit = round(entry * 1.1, 4)
-        trade_type = classify_trade(change, c['quote']['USD']['volume_24h'], c['quote']['USD']['market_cap'])
-        final_table.append([c['symbol'], entry, f"{change}%", stop_loss, take_profit, trade_type])
-        chart = generate_chart(c['symbol'], entry, stop_loss, take_profit)
-        if chart:
-            charts.append((chart, c['name']))
-
-    # יצירת טבלה Markdown
-    if final_table:
-        header = "| Symbol | Entry | Change 24h | Stop | Take Profit | Type |\n|--------|-------|------------|------|-------------|------|"
-        rows = "\n".join([f"| {r[0]} | {r[1]} | {r[2]} | {r[3]} | {r[4]} | {r[5]} |" for r in final_table])
-        bot.send_message(chat_id=CHAT_ID, text="📊 דו\"ח קריפטו יומי:\n\n" + header + "\n" + rows, parse_mode="Markdown")
-
-    # שליחת גרפים
-    for chart, name in charts:
-        bot.send_photo(chat_id=CHAT_ID, photo=open(chart, 'rb'), caption=f"גרף {name}")
-
-    # Trending (CoinGecko + LunarCrush)
-    trending = get_trending_coins()
+    # CoinGecko
+    trending = get_trending_gecko()
     if trending:
-        hot_list = "\n".join([f"🔥 {c['name']} ({c['symbol']})" for c in trending])
-        bot.send_message(chat_id=CHAT_ID, text=f"\n🌟 CoinGecko Trending:\n{hot_list}")
+        for coin in trending:
+            name = coin['name']
+            symbol = coin['symbol'].upper()
+            price = coin.get('price_btc', 0)  # נתון חלקי
+            entry, stop, target, style = calculate_levels(price, 5)
 
+            # כאן צריך נתוני גרף אמיתיים (אפשר דרך cg.get_coin_market_chart)
+            chart_path = None
+            try:
+                hist = cg.get_coin_market_chart_by_id(coin['id'], vs_currency='usd', days=7)
+                prices = [
+                    {"timestamp": int(p[0]/1000), "open": p[1], "high": p[1]*1.02, "low": p[1]*0.98, "close": p[1]}
+                    for p in hist['prices']
+                ]
+                chart_path = generate_chart(symbol, prices, entry, stop, target)
+            except:
+                pass
+
+            caption = (
+                f"*{name}* ({symbol})\n"
+                f"מחיר נוכחי: {price}$\n"
+                f"כניסה: {entry}$ | סטופ: {stop}$ | טייק: {target}$\n"
+                f"סגנון עסקה: {style}\n"
+                f"📊 מקור: CoinGecko"
+            )
+
+            if chart_path:
+                bot.send_photo(chat_id=CHAT_ID, photo=open(chart_path, 'rb'),
+                               caption=caption, parse_mode='Markdown')
+            else:
+                bot.send_message(chat_id=CHAT_ID, text=caption, parse_mode='Markdown')
+
+    # LunarCrush
     lunar = get_lunar_trending()
     if lunar:
-        lunar_list = "\n".join([f"🌐 {c['name']} ({c['symbol']}) | GalaxyScore: {c.get('galaxy_score','?')}" for c in lunar])
-        bot.send_message(chat_id=CHAT_ID, text=f"\n🚀 LunarCrush Trending:\n{lunar_list}")
-
-if __name__ == "__main__":
-    send_report()
+        hot_list = "\n".join([f"🔥 {c['name']} ({c['symbol']})" for c in lunar])
+        bot.send_message(chat_id=CHAT_ID, text=f"🌐 הכי מדובר ב-LunarCrush:\n
