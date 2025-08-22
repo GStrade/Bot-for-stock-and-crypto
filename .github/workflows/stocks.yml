@@ -1,23 +1,25 @@
-name: Stocks Bot
+name: Run Stocks Bot
 
 on:
-  workflow_dispatch:  # מאפשר להריץ ידנית
+  workflow_dispatch: # הרצה ידנית
   schedule:
-    - cron: "0 6 * * *"   # 06:00 UTC
-    - cron: "0 14 * * *"  # 14:00 UTC
+    - cron: "0 6 * * *"   # כל יום 06:00
+    - cron: "0 14 * * *"  # כל יום 14:00
 
 jobs:
   run-stocks:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
-          python-version: '3.11'
-      - run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - run: python stocks_bot.py
+          python-version: "3.11"
+      - name: Install dependencies
+        run: |
+          pip install yfinance matplotlib python-telegram-bot==13.7
+      - name: Run stocks bot
+        run: python stocks_bot.py
         env:
           TOKEN_STOCKS: ${{ secrets.TOKEN_STOCKS }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CHAT_ID_STOCKS: ${{ secrets.CHAT_ID_STOCKS }}
