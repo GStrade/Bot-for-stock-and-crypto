@@ -7,14 +7,18 @@ jobs:
   test-stocks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: '3.11'
+
       - name: Install dependencies
-        run: pip install python-telegram-bot==13.7
-      - name: Run test_stocks.py
+        run: pip install -r requirements.txt
+
+      - name: Run test stocks
         run: python test_stocks.py
         env:
           TOKEN_STOCKS: ${{ secrets.TOKEN_STOCKS }}
