@@ -3,15 +3,25 @@ import requests
 from pycoingecko import CoinGeckoAPI
 from telegram import Bot
 
+# טעינת הסודות מ-GitHub Secrets
 TOKEN = os.getenv("TOKEN_CRYPTO")
 CHAT_ID = os.getenv("CHAT_ID_CRYPTO")
 LUNAR_API_KEY = os.getenv("LUNARCRUSH_API")
+
+# בדיקה שהסודות קיימים
+if not TOKEN or not CHAT_ID:
+    raise ValueError("❌ חסר TOKEN_CRYPTO או CHAT_ID_CRYPTO ב-Secrets")
 
 bot = Bot(token=TOKEN)
 cg = CoinGeckoAPI()
 
 def get_top_lowcaps():
-    coins = cg.get_coins_markets(vs_currency='usd', order='market_cap_asc', per_page=100, page=1)
+    coins = cg.get_coins_markets(
+        vs_currency='usd',
+        order='market_cap_asc',
+        per_page=100,
+        page=1
+    )
     filtered = []
     for c in coins:
         if not c['market_cap'] or c['market_cap'] > 50_000_000:
@@ -30,16 +40,25 @@ def get_trending_coins():
     return [coin['item'] for coin in trending['coins'][:5]]
 
 def get_lunar_trending():
+    if not LUNAR_API_KEY:
+        print("⚠️ לא הוזן API של LunarCrush")
+        return []
     url = "https://lunarcrush.com/api4/public/coins/list/v1"
     params = {"limit": 5, "sort": "social_volume_24h", "desc": True}
     headers = {"Authorization": f"Bearer {LUNAR_API_KEY}"}
-    r = requests.get(url, headers=headers)
-    data = r.json()
-    return data.get("data", [])
+    try:
+        r = requests.get(url, headers=headers, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        return data.get("data", [])
+    except Exception as e:
+        print(f"שגיאה מ-LunarCrush: {e}")
+        return []
 
 def send_report():
     bot.send_message(chat_id=CHAT_ID, text="🚀 סורק הקריפטו התחיל לרוץ!")
 
+    # Low caps
     coins = get_top_lowcaps()
     if coins:
         for coin in coins:
@@ -53,11 +72,13 @@ def send_report():
     else:
         bot.send_message(chat_id=CHAT_ID, text="❌ לא נמצאו אלטקוינים מסוננים היום.")
 
+    # Trending CoinGecko
     trending = get_trending_coins()
     if trending:
         hot_list = "\n".join([f"🔥 {c['name']} ({c['symbol'].upper()})" for c in trending])
         bot.send_message(chat_id=CHAT_ID, text=f"🌟 המטבעות החמים ב-CoinGecko:\n{hot_list}")
 
+    # LunarCrush
     lunar = get_lunar_trending()
     if lunar:
         msg = "🌐 המטבעות הכי מדוברים (LunarCrush):\n"
