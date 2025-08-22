@@ -4,7 +4,7 @@ from pycoingecko import CoinGeckoAPI
 from telegram import Bot
 
 TOKEN = os.getenv("TOKEN_CRYPTO")
-CHAT_ID = os.getenv("CHAT_ID")
+CHAT_ID = os.getenv("CHAT_ID_CRYPTO")
 LUNAR_API_KEY = os.getenv("LUNARCRUSH_API")
 
 bot = Bot(token=TOKEN)
