@@ -1,0 +1,25 @@
+name: Test Crypto Bot
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-crypto:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run test crypto
+        run: python test_crypto.py
+        env:
+          TOKEN_CRYPTO: ${{ secrets.TOKEN_CRYPTO }}
+          CHAT_ID_CRYPTO: ${{ secrets.CHAT_ID_CRYPTO }}
