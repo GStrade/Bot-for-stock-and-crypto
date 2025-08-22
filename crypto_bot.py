@@ -2,14 +2,13 @@ import requests
 import pandas as pd
 import mplfinance as mpf
 from pycoingecko import CoinGeckoAPI
-import datetime
 import random
 import os
 import telebot
 
 # ===== הגדרות =====
-API_KEY = os.getenv("TELEGRAM_API_KEY")
-CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+API_KEY = os.getenv("TOKEN_CRYPTO")        # טוקן של בוט טלגרם (מה-Secrets)
+CHAT_ID = os.getenv("CHAT_ID_CRYPTO")      # צ'אט ID (מה-Secrets)
 bot = telebot.TeleBot(API_KEY)
 
 cg = CoinGeckoAPI()
@@ -36,9 +35,9 @@ def generate_chart(symbol, hist, entry, stop, target):
     s = mpf.make_mpf_style(marketcolors=mc)
 
     add_lines = [
-        mpf.make_addplot([entry]*len(df), color="blue", linestyle="--", linewidth=1),
-        mpf.make_addplot([stop]*len(df), color="red", linestyle="--", linewidth=1),
-        mpf.make_addplot([target]*len(df), color="green", linestyle="--", linewidth=1),
+        mpf.make_addplot([entry]*len(df), color="blue", linestyle="--", linewidth=1, label="Entry"),
+        mpf.make_addplot([stop]*len(df), color="red", linestyle="--", linewidth=1, label="Stop Loss"),
+        mpf.make_addplot([target]*len(df), color="green", linestyle="--", linewidth=1, label="Take Profit"),
     ]
 
     filepath = f"{symbol}.png"
