@@ -1,24 +1,29 @@
-name: Crypto Bot
+name: Run Crypto Bot
 
 on:
-  workflow_dispatch:  # מאפשר להריץ ידנית
+  workflow_dispatch:
   schedule:
-    - cron: "0 6 * * *"   # 06:00 UTC
-    - cron: "0 14 * * *"  # 14:00 UTC
+    - cron: "0 6 * * *"   # כל יום 06:00
+    - cron: "0 14 * * *"  # כל יום 14:00
 
 jobs:
   run-crypto:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
-      - uses: actions/setup-python@v4
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: '3.11'
-      - run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      - run: python crypto_bot.py
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run crypto bot
+        run: python crypto_bot.py
         env:
           TOKEN_CRYPTO: ${{ secrets.TOKEN_CRYPTO }}
-          CHAT_ID: ${{ secrets.CHAT_ID }}
+          CHAT_ID_CRYPTO: ${{ secrets.CHAT_ID_CRYPTO }}
           LUNARCRUSH_API: ${{ secrets.LUNARCRUSH_API }}
