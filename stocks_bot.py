@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 from telegram import Bot
 
 TOKEN = os.getenv("TOKEN_STOCKS")
-CHAT_ID = os.getenv("CHAT_ID")
+CHAT_ID = os.getenv("CHAT_ID_STOCKS")
 bot = Bot(token=TOKEN)
 
 def get_sector(ticker):
