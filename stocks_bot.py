@@ -1,12 +1,13 @@
 import os
 import yfinance as yf
+import mplfinance as mpf
 import matplotlib.pyplot as plt
-import numpy as np
 from telegram import Bot
 
-# טוקן וצ'אט איידי מתוך Secrets
+# --- טוקן וצ'אט איידי מהסודות ---
 TOKEN = os.getenv("TOKEN_STOCKS")
 CHAT_ID = os.getenv("CHAT_ID_STOCKS")
+
 bot = Bot(token=TOKEN)
 
 
@@ -14,46 +15,48 @@ def get_sector(ticker):
     try:
         info = yf.Ticker(ticker).info
         return info.get("sector", "לא ידוע")
-    except Exception:
+    except:
         return "שגיאה"
 
 
-def generate_chart(ticker):
+def generate_chart(ticker, entry, stop_loss, take_profit):
     stock = yf.Ticker(ticker)
-    hist = stock.history(period="14d")
+    hist = stock.history(period="7d", interval="1h")  # נרות שעתי ל־7 ימים
+
     if hist.empty:
         return None
-    plt.figure()
-    hist['Close'].plot(title=f"{ticker} - גרף יומי")
+
+    # קווי עזר למחירים
+    alines = [
+        [hist.index[0], entry, hist.index[-1], entry],
+        [hist.index[0], stop_loss, hist.index[-1], stop_loss],
+        [hist.index[0], take_profit, hist.index[-1], take_profit]
+    ]
+    colors = ["blue", "red", "green"]
+
     filepath = f"{ticker}.png"
-    plt.savefig(filepath)
-    plt.close()
+
+    mpf.plot(
+        hist,
+        type="candle",
+        style="charles",
+        title=f"{ticker} - גרף נרות יפניים",
+        ylabel="מחיר ($)",
+        ylabel_lower="Volume",
+        volume=True,
+        alines=dict(alines=alines, colors=colors, linewidths=[1.2, 1.2, 1.2]),
+        savefig=filepath
+    )
+
+    # הוספת תוויות מחירים על הגרף
+    fig, ax = plt.subplots()
+    for line, color, label in zip([entry, stop_loss, take_profit], colors,
+                                  ["כניסה", "סטופ לוס", "טייק פרופיט"]):
+        ax.axhline(line, color=color, linestyle="--", label=f"{label}: {line}$")
+    ax.legend()
+    plt.close(fig)
+
     return filepath
-
-
-def calculate_trade_levels(price, volatility, direction):
-    """חישוב מחיר כניסה, סטופלוס וטייק פרופיט על בסיס תנודתיות (ATR פשוט)"""
-    entry = round(price, 2)
-    atr = round(volatility, 2)
-
-    if direction == "לונג":
-        stop_loss = round(entry - 1.5 * atr, 2)
-        take_profit = round(entry + 2 * atr, 2)
-    else:  # שורט
-        stop_loss = round(entry + 1.5 * atr, 2)
-        take_profit = round(entry - 2 * atr, 2)
-
-    return entry, stop_loss, take_profit
-
-
-def classify_trade(change, volume_ratio):
-    """קובע אם זה סווינג או עסקה יומית"""
-    if change > 10 or volume_ratio > 3:
-        return "⚡ עסקה יומית (Day Trade)"
-    elif 3 < change <= 10:
-        return "📊 עסקת סווינג (Swing Trade, 3-7 ימים)"
-    else:
-        return "🤔 ניטרלי / לא מובהק"
 
 
 def send_stocks():
@@ -64,50 +67,49 @@ def send_stocks():
         try:
             stock = yf.Ticker(t)
             info = stock.info
+            hist = stock.history(period="1d")
 
-            hist = stock.history(period="7d")
             if hist.empty:
                 continue
-            price = hist['Close'][-1]
 
+            price = hist['Close'][-1]
             volume = info.get('volume') or 0
             avg_volume = info.get('averageVolume') or 1
             change = info.get('regularMarketChangePercent') or 0
             sector = get_sector(t)
 
-            # חישוב תנודתיות פשוטה – סטיית תקן יומית
-            volatility = hist['Close'].pct_change().std() * price
-
             reasons = []
             if change and change > 5:
-                reasons.append("📈 שינוי יומי חד")
+                reasons.append("📈 שינוי יומי חד (מעל 5%)")
             if volume and avg_volume and volume > 2 * avg_volume:
-                reasons.append("🔥 ווליום חריג")
+                reasons.append("🔥 ווליום חריג (פי 2 מהממוצע)")
+            if price < 20:
+                reasons.append("💲 מחיר נמוך יחסית – מתאים לכניסה קטנה")
 
-            if reasons:
+            if len(reasons) >= 1:
                 direction = "לונג" if change > 0 else "שורט"
                 potential = round(abs(change), 2)
+                summary = info.get('longBusinessSummary', '')[:250]
 
-                # חישוב רמות מסחר
-                entry, stop_loss, take_profit = calculate_trade_levels(price, volatility, direction)
-                trade_type = classify_trade(change, volume / avg_volume)
+                # הגדרת רמות טכניות פשוטות
+                entry = round(price, 2)
+                stop_loss = round(price * 0.9, 2)  # 10% מתחת
+                take_profit = round(price * 1.15, 2)  # 15% מעל
 
-                summary = info.get('longBusinessSummary', '')[:200]
-                chart_path = generate_chart(t)
+                chart_path = generate_chart(t, entry, stop_loss, take_profit)
 
                 caption = (
                     f"*{info.get('shortName', t)}* ({t})\n"
                     f"תחום: {sector}\n"
-                    f"מחיר נוכחי: {round(price,2)}$\n"
-                    f"שינוי יומי: {round(change,2)}%\n"
-                    f"סיבה: {', '.join(reasons)}\n"
-                    f"כיוון עסקה: {direction}\n"
-                    f"סוג עסקה: {trade_type}\n"
-                    f"אחוז רווח פוטנציאלי: {potential}%\n\n"
-                    f"🎯 מחיר כניסה: {entry}$\n"
-                    f"🛑 סטופלוס: {stop_loss}$\n"
-                    f"✅ טייק פרופיט: {take_profit}$\n\n"
-                    f"{summary}..."
+                    f"מחיר נוכחי: {entry}$\n"
+                    f"שינוי יומי: {round(change, 2)}%\n"
+                    f"סיבת כניסה:\n- " + "\n- ".join(reasons) + "\n\n"
+                    f"💡 אסטרטגיה: {direction}\n"
+                    f"🎯 כניסה: {entry}$\n"
+                    f"🛑 סטופ לוס: {stop_loss}$\n"
+                    f"✅ טייק פרופיט: {take_profit}$\n"
+                    f"📊 אחוז רווח פוטנציאלי: {potential}%\n\n"
+                    f"ℹ️ תיאור קצר: {summary}..."
                 )
 
                 selected.append((chart_path, caption))
@@ -119,16 +121,12 @@ def send_stocks():
     else:
         for chart_path, caption in selected[:5]:
             if chart_path:
-                with open(chart_path, 'rb') as photo:
-                    bot.send_photo(chat_id=CHAT_ID, photo=photo,
-                                   caption=caption, parse_mode='Markdown')
+                bot.send_photo(chat_id=CHAT_ID, photo=open(chart_path, 'rb'),
+                               caption=caption, parse_mode='Markdown')
             else:
                 bot.send_message(chat_id=CHAT_ID, text=caption)
 
 
 if __name__ == "__main__":
-    try:
-        bot.send_message(chat_id=CHAT_ID, text="🚀 סורק המניות התחיל לרוץ!")
-        send_stocks()
-    except Exception as e:
-        bot.send_message(chat_id=CHAT_ID, text=f"⚠️ שגיאה בהרצת הבוט: {e}")
+    bot.send_message(chat_id=CHAT_ID, text="🚀 סורק המניות התחיל לרוץ!")
+    send_stocks()
