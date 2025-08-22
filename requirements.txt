@@ -1,12 +1,7 @@
-# ספריות מניות
 yfinance
 matplotlib
 pandas
 mplfinance
-
-# ספריות טלגרם
-pyTelegramBotAPI
-
-# ספריות קריפטו
+requests
+python-telegram-bot==13.15
 pycoingecko
-requests 
