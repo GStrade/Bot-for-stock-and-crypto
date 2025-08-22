@@ -1,14 +1,13 @@
 import os
 import yfinance as yf
 import mplfinance as mpf
-import matplotlib.pyplot as plt
 from telegram import Bot
 
 TOKEN = os.getenv("TOKEN_STOCKS")
 CHAT_ID = os.getenv("CHAT_ID_STOCKS")
 bot = Bot(token=TOKEN)
 
-# חישוב סטופלוס/טייק פרופיט לדוגמה
+# חישוב רמות
 def calculate_levels(price, change):
     if change > 0:
         entry = price
@@ -22,11 +21,11 @@ def calculate_levels(price, change):
         style = "עסקה יומית (Day Trade)"
     return entry, stop, target, style
 
+# ציור גרף נרות
 def generate_chart(ticker, entry, stop, target):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="1mo", interval="1d")
 
-    # גרף נרות עם mplfinance
     apds = [
         mpf.make_addplot([entry]*len(hist), color='blue', linestyle='--'),
         mpf.make_addplot([stop]*len(hist), color='red', linestyle='--'),
@@ -36,10 +35,11 @@ def generate_chart(ticker, entry, stop, target):
     filepath = f"{ticker}.png"
     mpf.plot(hist, type='candle', style='charles',
              addplot=apds,
-             title=f"{ticker} - נרות יומיים",
+             title=f"{ticker} - גרף נרות יומי",
              savefig=filepath)
     return filepath
 
+# שליחת מניות
 def send_stocks():
     tickers = ['NIO', 'BITF', 'AMC', 'PLTR', 'RIOT']
     selected = []
@@ -51,16 +51,17 @@ def send_stocks():
             price = stock.history(period="1d")['Close'][0]
             change = info.get('regularMarketChangePercent', 0)
 
-            # בדיקות
             reasons = []
-            if change and change > 5:
+            if change and abs(change) > 5:
                 reasons.append("📈 שינוי יומי חד")
             if info.get('volume', 0) > 2 * info.get('averageVolume', 1):
                 reasons.append("🔥 ווליום חריג")
             if info.get('news', None):
-                reasons.append("📰 חדשות חמות בשוק")
+                reasons.append("📰 חדשות חמות")
+            if price > info.get('fiftyDayAverage', 0):
+                reasons.append("🚀 פריצה מעל ממוצע נע 50")
 
-            if len(reasons) >= 1:
+            if len(reasons) >= 2:  # חייב לפחות 2 קריטריונים
                 entry, stop, target, style = calculate_levels(price, change)
                 chart_path = generate_chart(t, entry, stop, target)
 
@@ -69,8 +70,8 @@ def send_stocks():
                     f"מחיר נוכחי: {round(price,2)}$\n"
                     f"כניסה: {entry}$ | סטופלוס: {stop}$ | טייק פרופיט: {target}$\n"
                     f"סגנון עסקה: {style}\n"
-                    f"סיבות: {', '.join(reasons)}\n"
-                    f"📊 אחוז שינוי יומי: {round(change,2)}%\n"
+                    f"סיבות לכניסה: {', '.join(reasons)}\n"
+                    f"📊 אחוז שינוי יומי: {round(change,2)}%"
                 )
                 selected.append((chart_path, caption))
         except Exception as e:
