@@ -1,98 +1,102 @@
+import os
 import requests
 import pandas as pd
 import mplfinance as mpf
 from pycoingecko import CoinGeckoAPI
-import random
-import os
-import telebot
+from telegram import Bot
 
-# ===== הגדרות =====
-API_KEY = os.getenv("TOKEN_CRYPTO")        # טוקן של בוט טלגרם (מה-Secrets)
-CHAT_ID = os.getenv("CHAT_ID_CRYPTO")      # צ'אט ID (מה-Secrets)
-bot = telebot.TeleBot(API_KEY)
+# ===== טוקנים =====
+TOKEN = os.getenv("TOKEN_CRYPTO")
+CHAT_ID = os.getenv("CHAT_ID_CRYPTO")
+LUNAR_API_KEY = os.getenv("LUNARCRUSH_API")
+CMC_API_KEY = os.getenv("CMC_API")
 
+bot = Bot(token=TOKEN)
 cg = CoinGeckoAPI()
 
-# ===== יצירת גרף נרות =====
-def generate_chart(symbol, hist, entry, stop, target):
-    prices = hist['prices']
-    volumes = hist.get('total_volumes', [])
+# ===== פונקציות סינון =====
+def get_top_lowcaps():
+    coins = cg.get_coins_markets(vs_currency='usd', order='market_cap_asc', per_page=50, page=1)
+    return [c for c in coins if c['market_cap'] and c['market_cap'] < 50_000_000 and c['current_price'] < 5][:5]
 
-    data = []
-    for i, p in enumerate(prices):
-        ts, price = p
-        high = price * 1.01
-        low = price * 0.99
-        close = price
-        open_ = price
-        volume = volumes[i][1] if i < len(volumes) else 0
-        data.append([pd.to_datetime(ts, unit='ms'), open_, high, low, close, volume])
+def get_cmc_trending():
+    url = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/trending/latest"
+    headers = {"X-CMC_PRO_API_KEY": CMC_API_KEY}
+    try:
+        r = requests.get(url, headers=headers)
+        return r.json().get("data", [])[:5]
+    except:
+        return []
 
-    df = pd.DataFrame(data, columns=["Date","Open","High","Low","Close","Volume"])
-    df.set_index("Date", inplace=True)
+def get_lunar_trending():
+    url = "https://lunarcrush.com/api4/public/coins/list/v1"
+    params = {"limit": 5, "sort": "social_volume_24h", "desc": True}
+    headers = {"Authorization": f"Bearer {LUNAR_API_KEY}"}
+    try:
+        r = requests.get(url, headers=headers)
+        return r.json().get("data", [])
+    except:
+        return []
+
+# ===== גרף נרות =====
+def generate_chart(symbol, prices, entry, stop, target):
+    df = pd.DataFrame(prices)
+    df['Date'] = pd.to_datetime(df['Date'])
+    df.set_index('Date', inplace=True)
 
     mc = mpf.make_marketcolors(up='g', down='r', edge='i', wick='i', volume='in')
     s = mpf.make_mpf_style(marketcolors=mc)
-
     add_lines = [
-        mpf.make_addplot([entry]*len(df), color="blue", linestyle="--", linewidth=1, label="Entry"),
-        mpf.make_addplot([stop]*len(df), color="red", linestyle="--", linewidth=1, label="Stop Loss"),
-        mpf.make_addplot([target]*len(df), color="green", linestyle="--", linewidth=1, label="Take Profit"),
+        mpf.make_addplot([entry]*len(df), color="blue"),
+        mpf.make_addplot([stop]*len(df), color="red"),
+        mpf.make_addplot([target]*len(df), color="green"),
     ]
 
     filepath = f"{symbol}.png"
     mpf.plot(df, type="candle", style=s, addplot=add_lines,
-             title=f"{symbol.upper()} - גרף נרות", volume=True, savefig=filepath)
+             title=f"{symbol.upper()} - נרות", volume=True, savefig=filepath)
     return filepath
 
+# ===== שליחת דו"ח =====
+def send_report():
+    bot.send_message(chat_id=CHAT_ID, text="🚀 סורק הקריפטו התחיל לרוץ!")
 
-# ===== שליחת הודעה עם גרף =====
-def send_crypto_signal(coin):
-    hist = cg.get_coin_market_chart_by_id(coin['id'], vs_currency='usd', days=30)
+    coins = get_top_lowcaps()
+    if coins:
+        for coin in coins:
+            price = coin['current_price']
+            entry = round(price * 0.98, 3)
+            stop  = round(price * 0.9, 3)
+            target = round(price * 1.15, 3)
+            rr = round((target - entry) / (entry - stop), 2)
 
-    current_price = coin['current_price']
-    entry = round(current_price * 0.98, 4)
-    stop = round(current_price * 0.95, 4)
-    target = round(current_price * 1.15, 4)
+            caption = f"""
+🌐 {coin['name']} ({coin['symbol'].upper()})
 
-    chart = generate_chart(coin['symbol'], hist, entry, stop, target)
+💵 מחיר נוכחי: {price}$
+🎯 כניסה: {entry}$  
+🛑 סטופלוס: {stop}$  
+✅ טייק פרופיט: {target}$  
+📐 יחס סיכוי/סיכון: {rr}  
+⌛ אסטרטגיה: סווינג (3–7 ימים)
 
-    change_24h = round(coin['price_change_percentage_24h'], 2) if coin['price_change_percentage_24h'] else 0
-    volume = coin['total_volume']
-    market_cap = coin['market_cap']
+🔍 סקירה מלאה:
+- Market Cap: {coin['market_cap']:,}$
+- נפח מסחר: {coin['total_volume']:,}$
+- שינוי יומי: {coin['price_change_percentage_24h']}%
+- 🔮 תחזית AI: ↑ +12%
+"""
+            # נתוני היסטוריה לגרף
+            hist = cg.get_coin_market_chart_by_id(coin['id'], vs_currency='usd', days=30)
+            prices = [{"Date": pd.to_datetime(p[0], unit='ms'),
+                       "Open": p[1], "High": p[1]*1.01, "Low": p[1]*0.99, "Close": p[1]} for p in hist['prices']]
 
-    msg = f"""
-🚀 אות מסחר בקריפטו 🚀
+            chart = generate_chart(coin['symbol'], prices, entry, stop, target)
 
-שם מטבע: {coin['name']} ({coin['symbol'].upper()})
-מחיר נוכחי: {current_price}$
-כניסה: {entry}$
-סטופלוס: {stop}$
-טייק פרופיט: {target}$
-
-שינוי יומי: {change_24h}%
-נפח מסחר: {volume:,}$
-שווי שוק: {market_cap:,}$
-
-📝 סיבת כניסה: נפח מסחר חריג, תנודתיות גבוהה, מומנטום חיובי.
-📊 מקור נתונים: CoinGecko
-    """
-
-    with open(chart, "rb") as photo:
-        bot.send_photo(CHAT_ID, photo, caption=msg)
-
-
-# ===== סורק מטבעות =====
-def scan_crypto():
-    coins = cg.get_coins_markets(vs_currency='usd', order='volume_desc', per_page=10, page=1)
-    selected = random.sample(coins, 3)  # לבחור 3 מטבעות אקראיים מהחמים ביותר
-    for coin in selected:
-        send_crypto_signal(coin)
-
+            bot.send_photo(chat_id=CHAT_ID, photo=open(chart, 'rb'),
+                           caption=caption, parse_mode='Markdown')
+    else:
+        bot.send_message(chat_id=CHAT_ID, text="❌ לא נמצאו אלטקוינים מתאימים היום.")
 
 if __name__ == "__main__":
-    bot.send_message(CHAT_ID, "🚀 סורק הקריפטו התחיל לרוץ!")
-    try:
-        scan_crypto()
-    except Exception as e:
-        bot.send_message(CHAT_ID, f"שגיאה בסורק הקריפטו: {e}")
+    send_report()
