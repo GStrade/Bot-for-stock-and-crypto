@@ -1,0 +1,6 @@
+name: Run Bots (Stocks & Crypto)
+
+on:
+  schedule:
+    # כל יום ב-06:00 ו-14:00 UTC (שעון ישראל זה +3/+2)
+    -
