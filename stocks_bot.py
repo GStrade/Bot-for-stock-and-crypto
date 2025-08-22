@@ -3,8 +3,14 @@ import yfinance as yf
 import matplotlib.pyplot as plt
 from telegram import Bot
 
+# קריאת ה־Secrets מגיטהאב
 TOKEN = os.getenv("TOKEN_STOCKS")
 CHAT_ID = os.getenv("CHAT_ID_STOCKS")
+
+# בדיקה שנטענו ערכים
+if not TOKEN or not CHAT_ID:
+    raise ValueError("❌ אחד מה־Secrets (TOKEN_STOCKS / CHAT_ID_STOCKS) לא הוגדר!")
+
 bot = Bot(token=TOKEN)
 
 def get_sector(ticker):
@@ -69,8 +75,9 @@ def send_stocks():
         bot.send_message(chat_id=CHAT_ID, text="❌ לא נמצאו מניות מתאימות היום.")
     else:
         for chart_path, caption in selected[:5]:
-            bot.send_photo(chat_id=CHAT_ID, photo=open(chart_path, 'rb'),
-                           caption=caption, parse_mode='Markdown')
+            with open(chart_path, 'rb') as photo:
+                bot.send_photo(chat_id=CHAT_ID, photo=photo,
+                               caption=caption, parse_mode='Markdown')
 
 if __name__ == "__main__":
     bot.send_message(chat_id=CHAT_ID, text="🚀 סורק המניות התחיל לרוץ!")
