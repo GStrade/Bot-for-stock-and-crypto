@@ -1,26 +1,46 @@
-name: Run Crypto Bot
+name: Manual Bot Tests
 
 on:
-  workflow_dispatch: # אפשר להריץ ידנית
-  schedule:
-    - cron: "0 6 * * *"   # כל יום 06:00
-    - cron: "0 14 * * *"  # כל יום 14:00
+  workflow_dispatch:
+    inputs:
+      bot:
+        description: "איזה בוט לבדוק?"
+        required: true
+        default: "stocks"
+        type: choice
+        options:
+          - stocks
+          - crypto
 
 jobs:
-  run-crypto:
+  run-test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.11"
+          python-version: "3.10"
+
       - name: Install dependencies
         run: |
-          pip install requests pycoingecko python-telegram-bot==13.7
-      - name: Run crypto bot
-        run: python crypto_bot.py
+          pip install yfinance matplotlib python-telegram-bot requests pycoingecko
+
+      - name: Run selected test
+        run: |
+          if [ "${{ github.event.inputs.bot }}" = "stocks" ]; then
+            echo "Running Stocks Bot Test..."
+            python test_stocks.py
+          else
+            echo "Running Crypto Bot Test..."
+            python test_crypto.py
+          fi
         env:
+          TOKEN_STOCKS: ${{ secrets.TOKEN_STOCKS }}
+          CHAT_ID_STOCKS: ${{ secrets.CHAT_ID_STOCKS }}
           TOKEN_CRYPTO: ${{ secrets.TOKEN_CRYPTO }}
           CHAT_ID_CRYPTO: ${{ secrets.CHAT_ID_CRYPTO }}
           LUNARCRUSH_API: ${{ secrets.LUNARCRUSH_API }}
