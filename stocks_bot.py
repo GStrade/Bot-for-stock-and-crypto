@@ -1,19 +1,81 @@
 import os
 import yfinance as yf
 import mplfinance as mpf
+import requests
 import pandas as pd
 from telegram import Bot
+from datetime import datetime, timedelta
+import matplotlib.pyplot as plt
 
+# === משתנים מהסביבה ===
 TOKEN = os.getenv("TOKEN_STOCKS")
 CHAT_ID = os.getenv("CHAT_ID_STOCKS")
 bot = Bot(token=TOKEN)
 
-# ===== גרף נרות + אינדיקטורים =====
-def generate_full_chart(ticker, entry, stop, targets):
+CHARTS_DIR = "charts"
+os.makedirs(CHARTS_DIR, exist_ok=True)
+
+plt.rcParams['axes.unicode_minus'] = False
+plt.rcParams['font.family'] = 'Arial'
+
+# ===== ניקוי גרפים ישנים =====
+def clean_old_charts(days=7):
+    now = datetime.now()
+    for file in os.listdir(CHARTS_DIR):
+        path = os.path.join(CHARTS_DIR, file)
+        if os.path.isfile(path):
+            modified = datetime.fromtimestamp(os.path.getmtime(path))
+            if now - modified > timedelta(days=days):
+                os.remove(path)
+
+# ===== כתיבה ללוג =====
+def write_log(text):
+    with open("log.txt", "a", encoding="utf-8") as f:
+        f.write(f"\n[{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}] {text}\n")
+
+# ===== חדשות =====
+def get_news(ticker):
+    url = f"https://query1.finance.yahoo.com/v1/finance/search?q={ticker}"
+    try:
+        r = requests.get(url).json()
+        if "news" in r and r["news"]:
+            return r["news"][0]["title"]
+    except:
+        return "אין חדשות זמינות"
+    return "אין חדשות זמינות"
+
+# ===== חוות דעת אנליסטים =====
+def get_analyst_opinion(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        recs = stock.recommendations_summary
+        if recs is None or recs.empty:
+            return "אין נתוני אנליסטים"
+
+        last = recs.iloc[-1].to_dict()
+        buy = last.get("buy", 0)
+        hold = last.get("hold", 0)
+        sell = last.get("sell", 0)
+        total = buy + hold + sell
+        if total == 0:
+            return "אין נתוני אנליסטים"
+
+        buy_pct = round(buy/total*100)
+        hold_pct = round(hold/total*100)
+        sell_pct = round(sell/total*100)
+
+        return f"קנייה: {buy_pct}% | החזקה: {hold_pct}% | מכירה: {sell_pct}%"
+    except:
+        return "אין נתוני אנליסטים"
+
+# ===== גרף נרות =====
+def generate_chart(ticker, entry, stop, tps):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="3mo", interval="1d")
+    if hist.empty:
+        return None
 
-    # חישוב MA ו-RSI
+    # חישוב אינדיקטורים
     hist['MA20'] = hist['Close'].rolling(20).mean()
     hist['MA50'] = hist['Close'].rolling(50).mean()
     delta = hist['Close'].diff()
@@ -22,165 +84,105 @@ def generate_full_chart(ticker, entry, stop, targets):
     rs = gain.rolling(14).mean() / loss.rolling(14).mean()
     hist['RSI'] = 100 - (100 / (1 + rs))
 
-    # קווים על הגרף
     add_lines = [
         mpf.make_addplot([entry]*len(hist), color="blue", linestyle="--"),
         mpf.make_addplot([stop]*len(hist), color="red", linestyle="--"),
-        mpf.make_addplot([targets[0]]*len(hist), color="green", linestyle="--"),
-        mpf.make_addplot([targets[1]]*len(hist), color="lime", linestyle="--"),
-        mpf.make_addplot([targets[2]]*len(hist), color="purple", linestyle="--"),
-        mpf.make_addplot([targets[3]]*len(hist), color="orange", linestyle="--"),
-        mpf.make_addplot(hist['MA20'], color="cyan"),
-        mpf.make_addplot(hist['MA50'], color="magenta"),
+        mpf.make_addplot(hist['MA20'], color="orange"),
+        mpf.make_addplot(hist['MA50'], color="purple"),
         mpf.make_addplot(hist['RSI'], panel=1, color="fuchsia", ylabel='RSI'),
     ]
+    for i, tp in enumerate(tps):
+        add_lines.append(mpf.make_addplot([tp]*len(hist), color="green", linestyle="--"))
 
-    chart_file = f"{ticker}_chart.png"
-    mpf.plot(
-        hist,
-        type="candle",
-        style="yahoo",
-        addplot=add_lines,
-        volume=True,
-        title=f"{ticker} - נרות + אינדיקטורים",
-        ylabel="Price",
-        ylabel_lower="Volume",
-        savefig=chart_file
-    )
-    return chart_file
+    filepath = os.path.join(CHARTS_DIR, f"{ticker}.png")
+    mpf.plot(hist, type="candle", style="yahoo",
+             addplot=add_lines, volume=True,
+             title=f"{ticker} - נרות + אינדיקטורים",
+             ylabel="Price", ylabel_lower="Volume",
+             savefig=filepath)
+    return filepath
 
-# ===== המלצות אנליסטים =====
-def get_analyst_data(stock):
-    try:
-        rec = stock.recommendations_summary
-        target = stock.analysis
+# ===== סורק מניות =====
+def scan_stocks(limit=4, strict=True):
+    url = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+    table = pd.read_html(url)[0]
+    tickers = table['Symbol'].tolist()
 
-        if rec is not None and not rec.empty:
-            rating = rec.index[-1]
-        else:
-            rating = "N/A"
+    selected = []
+    for t in tickers:
+        try:
+            if "." in t: t = t.replace(".", "-")
+            stock = yf.Ticker(t)
+            hist = stock.history(period="10d", interval="1d")
+            if len(hist) < 2: continue
 
-        if target is not None and not target.empty:
-            mean_price = target['mean'].iloc[-1] if "mean" in target.columns else "N/A"
-            high_price = target['high'].iloc[-1] if "high" in target.columns else "N/A"
-            low_price = target['low'].iloc[-1] if "low" in target.columns else "N/A"
-        else:
-            mean_price, high_price, low_price = "N/A", "N/A", "N/A"
+            today, yesterday = hist.iloc[-1], hist.iloc[-2]
+            change = (today['Close'] - yesterday['Close']) / yesterday['Close'] * 100
+            avg_vol = hist['Volume'].tail(5).mean()
+            unusual_vol = today['Volume'] > (2 * avg_vol if strict else 1.2 * avg_vol)
 
-        return {
-            "rating": rating,
-            "mean": mean_price,
-            "high": high_price,
-            "low": low_price
-        }
-    except Exception as e:
-        print(f"שגיאה במשיכת נתוני אנליסטים: {e}")
-        return {"rating": "N/A", "mean": "N/A", "high": "N/A", "low": "N/A"}
+            if abs(change) >= (3 if strict else 2) and unusual_vol:
+                entry = today['Close']
+                stop = entry * 0.97
+                tps = [entry*1.03, entry*1.05, entry*1.07, entry*1.1]
+                selected.append({"ticker": t, "entry": round(entry,2), "stop": round(stop,2), "tps": [round(tp,2) for tp in tps], "change": round(change,2)})
+        except:
+            continue
 
-# ===== חדשות אחרונות =====
-def get_news(ticker):
-    try:
-        stock = yf.Ticker(ticker)
-        news = stock.news[:2]
-        headlines = "\n".join([f"- {n['title']}" for n in news])
-        return f"📰 חדשות אחרונות:\n{headlines}"
-    except:
-        return "📰 אין חדשות זמינות כרגע."
+    return selected[:limit]
 
-# ===== בניית הודעת טלגרם =====
-def build_message(info, ticker, price, entry, stop, targets, rr_ratio, change, reasons, analyst_data):
-    sector = info.get("sector", "N/A")
-    market_cap = info.get("marketCap", "N/A")
-    pe = info.get("trailingPE", "N/A")
-    eps = info.get("trailingEps", "N/A")
-    inst_own = info.get("heldPercentInstitutions", 0)
-    inst_own = f"{round(inst_own*100,2)}%" if inst_own else "N/A"
+# ===== שליחת דו"ח =====
+def send_report():
+    clean_old_charts(days=7)
+    stocks = scan_stocks()
+    if not stocks:
+        bot.send_message(chat_id=CHAT_ID, text="⚠️ לא נמצאו מניות בקריטריונים קשוחים – מחפש חלופיים...")
+        stocks = scan_stocks(strict=False)
 
-    rating = analyst_data.get("rating", "N/A")
-    target_mean = analyst_data.get("mean", "N/A")
-    target_high = analyst_data.get("high", "N/A")
-    target_low = analyst_data.get("low", "N/A")
+    if not stocks:
+        bot.send_message(chat_id=CHAT_ID, text="❌ לא נמצאו מניות גם בקריטריונים חלופיים.")
+        return
 
-    msg = f"""
-📊 *{info.get('shortName', ticker)}* ({ticker})
+    for s in stocks:
+        info = yf.Ticker(s['ticker']).info
+        sector = info.get("sector", "N/A")
+        market_cap = info.get("marketCap", "N/A")
+        pe = info.get("trailingPE", "N/A")
+        eps = info.get("trailingEps", "N/A")
 
-💵 מחיר נוכחי: {price}$
-🎯 כניסה: {round(entry,2)}$
-🛑 סטופלוס: {round(stop,2)}$
-✅ TP1: {targets[0]}$ | ✅ TP2: {targets[1]}$
-✅ TP3: {targets[2]}$ | ✅ TP4: {targets[3]}$
-📐 יחס סיכוי/סיכון: {rr_ratio}
-⌛ אסטרטגיה: סווינג (3–10 ימים)
+        news = get_news(s['ticker'])
+        analysts = get_analyst_opinion(s['ticker'])
+        chart = generate_chart(s['ticker'], s['entry'], s['stop'], s['tps'])
 
-🔍 סקירה מלאה:
-- סקטור: {sector}
-- סיבות: {', '.join(reasons)}
-- שינוי יומי: {change}%
-- סנטימנט: חיובי מאוד (Twitter/Reddit/News)
-- 🔮 AI Forecast: ↑ +12% (72% הסתברות)
+        msg = f"""
+📊 {info.get('shortName', s['ticker'])} ({s['ticker']})
 
-📊 נתוני אנליסטים:
-- דירוג ממוצע: {rating}
-- מחיר יעד ממוצע: {target_mean}$
-- מחיר יעד גבוה: {target_high}$, מחיר יעד נמוך: {target_low}$
+💵 מחיר נוכחי: {s['entry']}$
+🎯 כניסה: {s['entry']}$
+🛑 סטופלוס: {s['stop']}$
+✅ יעדים:
+- TP1: {s['tps'][0]}$
+- TP2: {s['tps'][1]}$
+- TP3: {s['tps'][2]}$
+- TP4: {s['tps'][3]}$
 
-📈 נתוני פיננסים:
+📐 שינוי יומי: {s['change']}%
+🏷️ סקטור: {sector}
+📰 חדשות: {news}
+📊 אנליסטים: {analysts}
+
+📈 פיננסים:
 - Market Cap: {market_cap}
 - EPS: {eps}
 - P/E: {pe}
-- Institutional Ownership: {inst_own}
 
-{get_news(ticker)}
+🔗 TradingView: https://www.tradingview.com/symbols/{s['ticker']}/
 
-✅ סיכום: איתות חזק, מתאים לניהול סווינג. יעד ריאלי לטווח הקרוב: {targets[0]}–{targets[3]}$.
+✅ סיכום: איתות מקצועי – מתאים לניהול סווינג.
 """
-    return msg
-
-# ===== סורק מניות =====
-def send_stocks():
-    tickers = ['TSLA', 'NIO', 'PLTR', 'RIOT', 'AMC']
-    selected = []
-
-    for t in tickers:
-        try:
-            stock = yf.Ticker(t)
-            info = stock.info
-            hist = stock.history(period="5d")
-            price = round(hist['Close'][-1], 2)
-            change = round(info.get('regularMarketChangePercent', 0), 2)
-            volume = info.get('volume', 0)
-            avg_volume = info.get('averageVolume', 1)
-
-            reasons = []
-            if change > 3: reasons.append("📈 שינוי יומי חיובי")
-            if volume > 2 * avg_volume: reasons.append("🔥 ווליום חריג")
-            if not reasons: continue
-
-            entry = price * 0.995
-            stop  = price * 0.95
-            targets = [
-                round(entry * 1.03, 2),
-                round(entry * 1.06, 2),
-                round(entry * 1.1, 2),
-                round(entry * 1.2, 2)
-            ]
-            rr_ratio = round((targets[0] - entry) / (entry - stop), 2)
-
-            analyst_data = get_analyst_data(stock)
-            caption = build_message(info, t, price, entry, stop, targets, rr_ratio, change, reasons, analyst_data)
-            chart_file = generate_full_chart(t, entry, stop, targets)
-
-            with open(chart_file, 'rb') as photo:
-                bot.send_photo(chat_id=CHAT_ID, photo=photo, caption=caption, parse_mode='Markdown')
-
-            selected.append(t)
-
-        except Exception as e:
-            print(f"שגיאה עם {t}: {e}")
-
-    if not selected:
-        bot.send_message(chat_id=CHAT_ID, text="❌ לא נמצאו מניות מתאימות היום.")
+        bot.send_photo(chat_id=CHAT_ID, photo=open(chart, "rb"), caption=msg, parse_mode="Markdown")
+        write_log(f"נשלח איתות עבור {s['ticker']}")
 
 if __name__ == "__main__":
     bot.send_message(chat_id=CHAT_ID, text="🚀 סורק מניות מקצועי התחיל לרוץ!")
-    send_stocks()
+    send_report()
