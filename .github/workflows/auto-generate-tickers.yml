@@ -1,0 +1,37 @@
+name: Auto Generate Tickers CSV
+
+on:
+  schedule:
+    - cron: "0 3 * * *"   # כל יום ב-03:00 UTC (06:00 בישראל)
+  workflow_dispatch:       # אפשר גם להריץ ידנית
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install pandas
+
+      - name: Run script
+        run: python generate_tickers.py
+
+      - name: Commit and push changes
+        run: |
+          git config --local user.email "actions@github.com"
+          git config --local user.name "GitHub Actions"
+          git add tickers.csv
+          git commit -m "auto-update: tickers.csv refreshed"
+          git push
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
