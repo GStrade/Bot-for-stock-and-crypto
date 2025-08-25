@@ -1,33 +1,41 @@
-Symbol
-AAPL
-MSFT
-AMZN
-TSLA
-GOOGL
-META
-NVDA
-BRK-B
-JPM
-V
-UNH
-HD
-MA
-PG
-XOM
-BAC
-PFE
-INTC
-KO
-CSCO
-PEP
-T
-DIS
-NFLX
-NKE
-MRK
-WMT
-CVX
-ORCL
-ABBV
-CRM
-...
+Symbol,Name
+AAPL,Apple Inc.
+MSFT,Microsoft Corp.
+GOOGL,Alphabet Inc. Class A
+GOOG,Alphabet Inc. Class C
+AMZN,Amazon.com Inc.
+META,Meta Platforms Inc.
+NFLX,Netflix Inc.
+NVDA,NVIDIA Corp.
+TSLA,Tesla Inc.
+AMD,Advanced Micro Devices Inc.
+INTC,Intel Corp.
+ADBE,Adobe Inc.
+CSCO,Cisco Systems Inc.
+ORCL,Oracle Corp.
+PYPL,PayPal Holdings Inc.
+QCOM,Qualcomm Inc.
+AVGO,Broadcom Inc.
+CRM,Salesforce Inc.
+PEP,PepsiCo Inc.
+KO,Coca-Cola Co.
+WMT,Walmart Inc.
+DIS,Walt Disney Co.
+NKE,Nike Inc.
+JPM,JP Morgan Chase & Co.
+GS,Goldman Sachs Group
+BAC,Bank of America Corp.
+C,Citigroup Inc.
+XOM,Exxon Mobil Corp.
+CVX,Chevron Corp.
+PFE,Pfizer Inc.
+MRNA,Moderna Inc.
+BA,Boeing Co.
+IBM,International Business Machines
+SHOP,Shopify Inc.
+UBER,Uber Technologies Inc.
+LYFT,Lyft Inc.
+PLTR,Palantir Technologies Inc.
+NIO,NIO Inc.
+RIOT,Riot Platforms Inc.
+AMC,AMC Entertainment Holdings Inc.
