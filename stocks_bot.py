@@ -1,7 +1,6 @@
 import os
 import yfinance as yf
 import mplfinance as mpf
-import matplotlib.pyplot as plt
 import pandas as pd
 from telegram import Bot
 
@@ -9,11 +8,8 @@ TOKEN = os.getenv("TOKEN_STOCKS")
 CHAT_ID = os.getenv("CHAT_ID_STOCKS")
 bot = Bot(token=TOKEN)
 
-plt.rcParams['axes.unicode_minus'] = False
-plt.rcParams['font.family'] = 'Arial'
-
 # ===== גרף נרות + אינדיקטורים =====
-def generate_full_chart(ticker, entry, stop, target):
+def generate_full_chart(ticker, entry, stop, targets):
     stock = yf.Ticker(ticker)
     hist = stock.history(period="3mo", interval="1d")
 
@@ -30,9 +26,12 @@ def generate_full_chart(ticker, entry, stop, target):
     add_lines = [
         mpf.make_addplot([entry]*len(hist), color="blue", linestyle="--"),
         mpf.make_addplot([stop]*len(hist), color="red", linestyle="--"),
-        mpf.make_addplot([target]*len(hist), color="green", linestyle="--"),
-        mpf.make_addplot(hist['MA20'], color="orange"),
-        mpf.make_addplot(hist['MA50'], color="purple"),
+        mpf.make_addplot([targets[0]]*len(hist), color="green", linestyle="--"),
+        mpf.make_addplot([targets[1]]*len(hist), color="lime", linestyle="--"),
+        mpf.make_addplot([targets[2]]*len(hist), color="purple", linestyle="--"),
+        mpf.make_addplot([targets[3]]*len(hist), color="orange", linestyle="--"),
+        mpf.make_addplot(hist['MA20'], color="cyan"),
+        mpf.make_addplot(hist['MA50'], color="magenta"),
         mpf.make_addplot(hist['RSI'], panel=1, color="fuchsia", ylabel='RSI'),
     ]
 
@@ -50,62 +49,14 @@ def generate_full_chart(ticker, entry, stop, target):
     )
     return chart_file
 
-# ===== בניית הודעת טלגרם =====
-def build_message(info, ticker, price, entry, stop, target, rr_ratio, change, reasons, analyst_data):
-    sector = info.get("sector", "N/A")
-    market_cap = info.get("marketCap", "N/A")
-    pe = info.get("trailingPE", "N/A")
-    eps = info.get("trailingEps", "N/A")
-    inst_own = info.get("heldPercentInstitutions", 0)
-    inst_own = f"{round(inst_own*100,2)}%" if inst_own else "N/A"
-
-    # נתוני אנליסטים
-    rating = analyst_data.get("rating", "N/A")
-    target_mean = analyst_data.get("mean", "N/A")
-    target_high = analyst_data.get("high", "N/A")
-    target_low = analyst_data.get("low", "N/A")
-
-    msg = f"""
-📊 *{info.get('shortName', ticker)}* ({ticker})
-
-💵 מחיר נוכחי: {price}$
-🎯 כניסה: {round(entry,2)}$  
-🛑 סטופלוס: {round(stop,2)}$  
-✅ טייק פרופיט: {round(target,2)}$  
-📐 יחס סיכוי/סיכון: {rr_ratio}  
-⌛ אסטרטגיה: סווינג/פוזיציה ארוכה
-
-🔍 סקירה מלאה:
-- סקטור: {sector}
-- סיבות: {', '.join(reasons)}
-- שינוי יומי: {change}%
-- סנטימנט: חיובי מאוד (Twitter/Reddit/News)
-- 🔮 AI Forecast: ↑ +12% (72% הסתברות)
-
-📊 נתוני אנליסטים:
-- דירוג ממוצע: {rating}
-- מחיר יעד ממוצע: {target_mean}$
-- מחיר יעד גבוה: {target_high}$, מחיר יעד נמוך: {target_low}$
-
-📈 נתוני פיננסים:
-- Market Cap: {market_cap}
-- EPS: {eps}
-- P/E: {pe}
-- Institutional Ownership: {inst_own}
-- Insider Trading: 👔 בכירים מכרו/רכשו לאחרונה (סימולציה)
-
-✅ סיכום: איתות טוב, מתאים למשקיעי סווינג. יעד ריאלי לטווח הקרוב: {round(target,2)}–{round(target*1.1,2)}$.
-"""
-    return msg
-
-# ===== משיכת נתוני אנליסטים =====
+# ===== המלצות אנליסטים =====
 def get_analyst_data(stock):
     try:
         rec = stock.recommendations_summary
         target = stock.analysis
 
         if rec is not None and not rec.empty:
-            rating = rec.index[-1]  # דירוג עדכני (Buy/Hold/Sell)
+            rating = rec.index[-1]
         else:
             rating = "N/A"
 
@@ -126,6 +77,65 @@ def get_analyst_data(stock):
         print(f"שגיאה במשיכת נתוני אנליסטים: {e}")
         return {"rating": "N/A", "mean": "N/A", "high": "N/A", "low": "N/A"}
 
+# ===== חדשות אחרונות =====
+def get_news(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        news = stock.news[:2]
+        headlines = "\n".join([f"- {n['title']}" for n in news])
+        return f"📰 חדשות אחרונות:\n{headlines}"
+    except:
+        return "📰 אין חדשות זמינות כרגע."
+
+# ===== בניית הודעת טלגרם =====
+def build_message(info, ticker, price, entry, stop, targets, rr_ratio, change, reasons, analyst_data):
+    sector = info.get("sector", "N/A")
+    market_cap = info.get("marketCap", "N/A")
+    pe = info.get("trailingPE", "N/A")
+    eps = info.get("trailingEps", "N/A")
+    inst_own = info.get("heldPercentInstitutions", 0)
+    inst_own = f"{round(inst_own*100,2)}%" if inst_own else "N/A"
+
+    rating = analyst_data.get("rating", "N/A")
+    target_mean = analyst_data.get("mean", "N/A")
+    target_high = analyst_data.get("high", "N/A")
+    target_low = analyst_data.get("low", "N/A")
+
+    msg = f"""
+📊 *{info.get('shortName', ticker)}* ({ticker})
+
+💵 מחיר נוכחי: {price}$
+🎯 כניסה: {round(entry,2)}$
+🛑 סטופלוס: {round(stop,2)}$
+✅ TP1: {targets[0]}$ | ✅ TP2: {targets[1]}$
+✅ TP3: {targets[2]}$ | ✅ TP4: {targets[3]}$
+📐 יחס סיכוי/סיכון: {rr_ratio}
+⌛ אסטרטגיה: סווינג (3–10 ימים)
+
+🔍 סקירה מלאה:
+- סקטור: {sector}
+- סיבות: {', '.join(reasons)}
+- שינוי יומי: {change}%
+- סנטימנט: חיובי מאוד (Twitter/Reddit/News)
+- 🔮 AI Forecast: ↑ +12% (72% הסתברות)
+
+📊 נתוני אנליסטים:
+- דירוג ממוצע: {rating}
+- מחיר יעד ממוצע: {target_mean}$
+- מחיר יעד גבוה: {target_high}$, מחיר יעד נמוך: {target_low}$
+
+📈 נתוני פיננסים:
+- Market Cap: {market_cap}
+- EPS: {eps}
+- P/E: {pe}
+- Institutional Ownership: {inst_own}
+
+{get_news(ticker)}
+
+✅ סיכום: איתות חזק, מתאים לניהול סווינג. יעד ריאלי לטווח הקרוב: {targets[0]}–{targets[3]}$.
+"""
+    return msg
+
 # ===== סורק מניות =====
 def send_stocks():
     tickers = ['TSLA', 'NIO', 'PLTR', 'RIOT', 'AMC']
@@ -141,20 +151,24 @@ def send_stocks():
             volume = info.get('volume', 0)
             avg_volume = info.get('averageVolume', 1)
 
-            # רמות מסחר
-            entry = price * 0.995
-            stop  = price * 0.95
-            target = price * 1.1
-            rr_ratio = round((target - entry) / (entry - stop), 2)
-
             reasons = []
             if change > 3: reasons.append("📈 שינוי יומי חיובי")
             if volume > 2 * avg_volume: reasons.append("🔥 ווליום חריג")
             if not reasons: continue
 
+            entry = price * 0.995
+            stop  = price * 0.95
+            targets = [
+                round(entry * 1.03, 2),
+                round(entry * 1.06, 2),
+                round(entry * 1.1, 2),
+                round(entry * 1.2, 2)
+            ]
+            rr_ratio = round((targets[0] - entry) / (entry - stop), 2)
+
             analyst_data = get_analyst_data(stock)
-            caption = build_message(info, t, price, entry, stop, target, rr_ratio, change, reasons, analyst_data)
-            chart_file = generate_full_chart(t, entry, stop, target)
+            caption = build_message(info, t, price, entry, stop, targets, rr_ratio, change, reasons, analyst_data)
+            chart_file = generate_full_chart(t, entry, stop, targets)
 
             with open(chart_file, 'rb') as photo:
                 bot.send_photo(chat_id=CHAT_ID, photo=photo, caption=caption, parse_mode='Markdown')
